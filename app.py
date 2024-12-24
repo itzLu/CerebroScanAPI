@@ -10,7 +10,9 @@ import streamlit as st
 
 app = Flask(__name__)
 
-CORS(app, resources={r"/*": {"origins": "*"}})  # Temporarily allow all origins for testing
+CORS(app, resources={
+    r"/*": {"origins": ["http://cerebroscan.great-site.net", "http://localhost:3000", "*"]}
+})
 
 
 def image_processing(img):
