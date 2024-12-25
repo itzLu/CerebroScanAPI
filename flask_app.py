@@ -1,34 +1,19 @@
-import cv2
+from flask import Flask, request, jsonify
+from tensorflow.keras.models import load_model
 import numpy as np
+import cv2
 from PIL import Image
 import io
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from tensorflow.keras.models import load_model
-import streamlit as st
-
 
 app = Flask(__name__)
 
-CORS(app, resources={
-    r"/*": {"origins": ["http://cerebroscan.great-site.net", "http://localhost:3000", "*"]}
-})
+# CORS settings (if needed)
+from flask_cors import CORS
+
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 
-def image_processing(img):
-    image_data = img.read()
-    image = Image.open(io.BytesIO(image_data))
-    img = np.array(image)
-
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    img_resized = cv2.resize(img_gray, (224,224))
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(7,7))
-    img_clahe = clahe.apply(img_resized)
-    norm_img = cv2.normalize(img_clahe, None, alpha=0.0, beta=1.0, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
-    final_img = np.expand_dims(norm_img, axis=0)
-    return final_img
-    
-
+# Load your models
 NonVSVeryMild_model = load_model('model_NonVSVeryMild.h5')
 NonVSMild_model = load_model('model_NonVSMild.h5')
 NonVSModerate_model = load_model('model_NonVSModerate.h5')
@@ -36,16 +21,31 @@ VeryMildVSMild_model = load_model('model_VeryMildVSMild.h5')
 VeryMildVSModerate_model = load_model('model_VeryMildVSModerate.h5')
 MildVSModerate_model = load_model('model_MildVSModerate.h5')
 
+def image_processing(img):
+    image_data = img.read()
+    image = Image.open(io.BytesIO(image_data))
+    img = np.array(image)
+
+    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img_resized = cv2.resize(img_gray, (224, 224))
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(7, 7))
+    img_clahe = clahe.apply(img_resized)
+    norm_img = cv2.normalize(img_clahe, None, alpha=0.0, beta=1.0, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_32F)
+    final_img = np.expand_dims(norm_img, axis=0)
+    return final_img
+
 @app.route('/', methods=['POST'])
 def classify():
-    try:
-        if 'image' not in request.files:
-            return jsonify({'error': 'No image provided'}), 400
-        
-        image = request.files['image']
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image provided'}), 400
 
+    image = request.files['image']
+
+    try:
         processed_image = image_processing(image)
-        prediction = [0,0,0,0]  
+
+        # Make predictions
+        prediction = [0, 0, 0, 0]
         NonVSVeryMild_Predict = float(NonVSVeryMild_model.predict(processed_image, verbose=0))
         NonVSMild_Predict = float(NonVSMild_model.predict(processed_image, verbose=0))
         NonVSModerate_Predict = float(NonVSModerate_model.predict(processed_image, verbose=0))
@@ -66,18 +66,17 @@ def classify():
         prediction[1] = (((1 - NonVSVeryMild_Predict) * confidence['NonVSVeryMild']) + (VeryMildVSMild_Predict * confidence['VeryMildVSMild']) + (VeryMildVSModerate_Predict * confidence['VeryMildVSModerate'])) / 3
         prediction[2] = (((1 - NonVSMild_Predict) * confidence['NonVSMild']) + ((1 - VeryMildVSMild_Predict) * confidence['VeryMildVSMild']) + (MildVSModerate_Predict * confidence['MildVSModerate'])) / 3
         prediction[3] = (((1 - NonVSModerate_Predict) * confidence['NonVSModerate']) + ((1 - VeryMildVSModerate_Predict) * confidence['VeryMildVSModerate']) + ((1 - MildVSModerate_Predict) * confidence['MildVSModerate'])) / 3
-    
-        classes = ['Non Demented', 'Very Mild Demented', 'Mild Demented', 'Moderate Demented']
-        confidence = float(np.max(prediction))
-        result = classes[np.argmax(prediction)]
-        
-        return jsonify({
-        'result': result,
-        'confidence': confidence
-    })
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': 'Failed to process image'}), 500
 
-st.title("Flask Backend Running on Streamlit")
-st.write("This is just a placeholder for Streamlit. The real functionality is the Flask API.")
+        classes = ['Non Demented', 'Very Mild Demented', 'Mild Demented', 'Moderate Demented']
+        result = classes[np.argmax(prediction)]
+        confidence = float(np.max(prediction))
+
+        return jsonify({
+            'result': result,
+            'confidence': confidence
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
